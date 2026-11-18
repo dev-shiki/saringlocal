@@ -46,5 +46,21 @@ describe('SaringLocal Workbench UI', () => {
     themeBtn.click();
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
     expect(themeBtn.getAttribute('aria-pressed')).toBe('true');
+
+    // Firebase SDK Setup tab persists App Check debug token and updates diagnostics
+    root.querySelector<HTMLButtonElement>('#tab-setup')!.click();
+    const form = root.querySelector<HTMLFormElement>('#firebase-config-form')!;
+    form.querySelector<HTMLInputElement>('#fb-api-key')!.value = 'AIzaSyDemoKey';
+    form.querySelector<HTMLInputElement>('#fb-project-id')!.value = 'demo-hybrid-ai';
+    form.querySelector<HTMLInputElement>('#fb-app-id')!.value = '1:123:web:demo';
+    form.querySelector<HTMLInputElement>('#fb-appcheck-debug-token')!.value = 'true';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    expect(root.querySelector<HTMLElement>('#firebase-status')!.textContent).toContain(
+      'App Check debug token'
+    );
+    expect(root.querySelector<HTMLElement>('#sdk-snippet-block')!.textContent).toContain(
+      'initializeAppCheck'
+    );
   });
 });

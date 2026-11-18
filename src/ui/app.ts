@@ -266,11 +266,51 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
 
   docInput.value = rawText;
 
+  const buildSdkSnippet = (): string => {
+    const hasDebugToken = Boolean(firebaseConfig?.appCheckDebugToken?.trim());
+    const hasSiteKey = Boolean(firebaseConfig?.appCheckSiteKey?.trim());
+    const appCheckLines = hasDebugToken
+      ? [
+          `self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;`,
+          `initializeAppCheck(app, {`,
+          `  provider: new ReCaptchaV3Provider("${hasSiteKey ? '<RECAPTCHA_V3_SITE_KEY>' : 'debug-token-mode-site-key'}"),`,
+          `  isTokenAutoRefreshEnabled: true`,
+          `});`
+        ]
+      : [
+          `initializeAppCheck(app, {`,
+          `  provider: new ReCaptchaV3Provider("<RECAPTCHA_V3_SITE_KEY>"),`,
+          `  isTokenAutoRefreshEnabled: true`,
+          `});`
+        ];
+
+    return [
+      `import { initializeApp } from "firebase/app";`,
+      `import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";`,
+      `import { getAI, getGenerativeModel, GoogleAIBackend, InferenceMode } from "firebase/ai";`,
+      ``,
+      `const app = initializeApp(firebaseConfig);`,
+      ...appCheckLines,
+      `const ai = getAI(app, { backend: new GoogleAIBackend() });`,
+      `const model = getGenerativeModel(ai, {`,
+      `  mode: InferenceMode.${selectedMode.toUpperCase()},`,
+      `  inCloudParams: { model: "gemini-2.5-flash" }`,
+      `});`
+    ].join('\n');
+  };
+
   const renderDiagnostics = (): void => {
     nanoStatusEl.textContent = onDeviceStatus;
-    firebaseStatusEl.textContent = firebaseConfig
-      ? `configured (${firebaseConfig.projectId})`
-      : 'not configured (local analyzer only)';
+    if (!firebaseConfig) {
+      firebaseStatusEl.textContent = 'not configured (local analyzer only)';
+    } else {
+      const appCheckMode = firebaseConfig.appCheckDebugToken?.trim()
+        ? 'App Check debug token'
+        : firebaseConfig.appCheckSiteKey?.trim()
+          ? 'App Check reCAPTCHA v3'
+          : 'App Check not set';
+      firebaseStatusEl.textContent = `configured (${firebaseConfig.projectId} | ${appCheckMode})`;
+    }
     activeModeTagEl.textContent = selectedMode;
 
     const preview = redactSensitiveText(rawText);
@@ -385,17 +425,7 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
   };
 
   const renderSetupPanel = (): void => {
-    const snippet = [
-      `import { initializeApp } from "firebase/app";`,
-      `import { getAI, getGenerativeModel, GoogleAIBackend, InferenceMode } from "firebase/ai";`,
-      ``,
-      `const app = initializeApp(firebaseConfig);`,
-      `const ai = getAI(app, { backend: new GoogleAIBackend() });`,
-      `const model = getGenerativeModel(ai, {`,
-      `  mode: InferenceMode.${selectedMode.toUpperCase()},`,
-      `  inCloudParams: { model: "gemini-2.5-flash" }`,
-      `});`
-    ].join('\n');
+    const snippet = buildSdkSnippet();
 
     panelSetup.innerHTML = `
       <form id="firebase-config-form" class="config-form" novalidate>
@@ -414,6 +444,16 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
           <input id="fb-app-id" name="appId" class="text-input" type="text" autocomplete="off"
             placeholder="1:123456:web:abcdef" value="${escapeHtml(firebaseConfig?.appId ?? '')}" />
         </div>
+        <div>
+          <label for="fb-appcheck-site-key" class="field-label">App Check reCAPTCHA v3 Site Key (optional)</label>
+          <input id="fb-appcheck-site-key" name="appCheckSiteKey" class="text-input" type="text" autocomplete="off"
+            placeholder="6Lc..." value="${escapeHtml(firebaseConfig?.appCheckSiteKey ?? '')}" />
+        </div>
+        <div>
+          <label for="fb-appcheck-debug-token" class="field-label">App Check Debug Token (optional, or "true")</label>
+          <input id="fb-appcheck-debug-token" name="appCheckDebugToken" class="text-input" type="text" autocomplete="off"
+            placeholder="debug token UUID or true" value="${escapeHtml(firebaseConfig?.appCheckDebugToken ?? '')}" />
+        </div>
         <div class="config-actions">
           <button type="submit" class="btn btn-secondary">Save Firebase Config</button>
           <button type="button" id="clear-fb-config" class="btn">Clear Saved Config</button>
@@ -430,19 +470,28 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       const data = new FormData(form);
+      const appCheckSiteKey = String(data.get('appCheckSiteKey') ?? '').trim();
+      const appCheckDebugToken = String(data.get('appCheckDebugToken') ?? '').trim();
       const next: FirebaseWebConfig = {
         apiKey: String(data.get('apiKey') ?? '').trim(),
         projectId: String(data.get('projectId') ?? '').trim(),
-        appId: String(data.get('appId') ?? '').trim()
+        appId: String(data.get('appId') ?? '').trim(),
+        ...(appCheckSiteKey ? { appCheckSiteKey } : {}),
+        ...(appCheckDebugToken ? { appCheckDebugToken } : {})
       };
       if (!isFirebaseConfigComplete(next)) {
-        setupFeedback = 'Provide all three Firebase fields (API Key, Project ID, and App ID) to enable cloud fallback.';
+        setupFeedback = 'Provide API Key, Project ID, and App ID to enable Firebase cloud fallback.';
         renderSetupPanel();
         return;
       }
       firebaseConfig = next;
       saveFirebaseConfig(next);
-      setupFeedback = `Saved Firebase config for ${next.projectId} in localStorage.`;
+      const appCheckNote = appCheckDebugToken
+        ? ' with App Check debug token'
+        : appCheckSiteKey
+          ? ' with App Check reCAPTCHA v3'
+          : '';
+      setupFeedback = `Saved Firebase config for ${next.projectId}${appCheckNote} in localStorage.`;
       renderDiagnostics();
       renderSetupPanel();
     });
@@ -531,17 +580,7 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
         renderDiffPanel();
         const snippetEl = panelSetup.querySelector<HTMLElement>('#sdk-snippet-block');
         if (snippetEl) {
-          snippetEl.textContent = [
-            `import { initializeApp } from "firebase/app";`,
-            `import { getAI, getGenerativeModel, GoogleAIBackend, InferenceMode } from "firebase/ai";`,
-            ``,
-            `const app = initializeApp(firebaseConfig);`,
-            `const ai = getAI(app, { backend: new GoogleAIBackend() });`,
-            `const model = getGenerativeModel(ai, {`,
-            `  mode: InferenceMode.${selectedMode.toUpperCase()},`,
-            `  inCloudParams: { model: "gemini-2.5-flash" }`,
-            `});`
-          ].join('\n');
+          snippetEl.textContent = buildSdkSnippet();
         }
       }
     });

@@ -1,5 +1,10 @@
 import { getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
 import {
+  initializeAppCheck,
+  ReCaptchaV3Provider,
+  type AppCheck
+} from 'firebase/app-check';
+import {
   getAI,
   getGenerativeModel,
   GoogleAIBackend,
@@ -28,6 +33,8 @@ export interface FirebaseWebConfig {
   projectId: string;
   appId: string;
   authDomain?: string;
+  appCheckSiteKey?: string;
+  appCheckDebugToken?: string;
 }
 
 export interface HybridTriageRequest {
@@ -62,6 +69,7 @@ interface ChromeLanguageModelGlobal {
 }
 
 declare global {
+  var FIREBASE_APPCHECK_DEBUG_TOKEN: boolean | string | undefined;
   interface Window {
     LanguageModel?: ChromeLanguageModelGlobal;
     ai?: {
@@ -114,22 +122,61 @@ export interface HybridModelFactory {
   ) => Pick<GenerativeModel, 'generateContent'>;
 }
 
+const initializedAppChecks = new Map<string, AppCheck>();
+
+export function ensureFirebaseAppCheck(
+  app: FirebaseApp,
+  config: FirebaseWebConfig
+): AppCheck | null {
+  const siteKey = config.appCheckSiteKey?.trim() ?? '';
+  const debugToken = config.appCheckDebugToken?.trim() ?? '';
+  if (!siteKey && !debugToken) {
+    return null;
+  }
+
+  const existing = initializedAppChecks.get(app.name);
+  if (existing) return existing;
+
+  if (debugToken) {
+    // Firebase App Check Web SDK activates its built-in debug provider when this global is set before initializeAppCheck.
+    globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN =
+      debugToken.toLowerCase() === 'true' ? true : debugToken;
+  } else {
+    globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = undefined;
+  }
+
+  const provider = new ReCaptchaV3Provider(siteKey || 'debug-token-mode-site-key');
+  const appCheck = initializeAppCheck(app, {
+    provider,
+    isTokenAutoRefreshEnabled: true
+  });
+  initializedAppChecks.set(app.name, appCheck);
+  return appCheck;
+}
+
 function getOrCreateFirebaseApp(config: FirebaseWebConfig): FirebaseApp {
   const apiKey = config.apiKey.trim();
   const projectId = config.projectId.trim();
   const appId = config.appId.trim();
   const authDomain = config.authDomain?.trim() || `${projectId}.firebaseapp.com`;
-  const appName = `saringlocal-${projectId}-${appId.slice(-8)}-${apiKey.slice(-6)}`;
+  const appCheckTag = `${config.appCheckSiteKey?.trim().slice(-6) ?? 'none'}-${config.appCheckDebugToken?.trim().slice(-6) ?? 'none'}`;
+  const appName = `saringlocal-${projectId}-${appId.slice(-8)}-${apiKey.slice(-6)}-${appCheckTag}`;
 
   const existing = getApps().find((app) => app.name === appName);
-  if (existing) return existing;
-  const options: FirebaseOptions = {
-    apiKey,
-    projectId,
-    appId,
-    authDomain
-  };
-  return initializeApp(options, appName);
+  const app =
+    existing ??
+    initializeApp(
+      {
+        apiKey,
+        projectId,
+        appId,
+        authDomain
+      } satisfies FirebaseOptions,
+      appName
+    );
+
+  ensureFirebaseAppCheck(app, config);
+  return app;
 }
 
 export const defaultHybridModelFactory: HybridModelFactory = {

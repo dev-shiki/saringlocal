@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
+  ensureFirebaseAppCheck,
   InferenceMode,
   InferenceSource,
   runHybridTriage,
@@ -119,5 +121,49 @@ describe('runHybridTriage', () => {
     expect(result.payloadSentToModel).toContain('[SECRET_1]');
     expect(result.summary).toBe('Contact secops@example.com regarding exposed token sk-liveSecretToken1234567890.');
     expect(result.actionItems[0]).toBe('Notify secops@example.com immediately.');
+  });
+});
+
+describe('ensureFirebaseAppCheck', () => {
+  it('returns null when neither site key nor debug token is configured', () => {
+    const fakeApp = { name: 'appcheck-noop-test' } as FirebaseApp;
+    const result = ensureFirebaseAppCheck(fakeApp, {
+      apiKey: 'k',
+      projectId: 'p',
+      appId: '1:1:web:1'
+    });
+    expect(result).toBeNull();
+  });
+
+  it('initializes Firebase App Check once with debug token and remains idempotent', () => {
+    const app = initializeApp(
+      {
+        apiKey: 'AIzaSyTestKeyForUnitCheck00000000000',
+        projectId: 'saringlocal-unit-test',
+        appId: '1:100000000000:web:abcdef123456'
+      },
+      'saringlocal-appcheck-unit'
+    );
+
+    const first = ensureFirebaseAppCheck(app, {
+      apiKey: 'AIzaSyTestKeyForUnitCheck00000000000',
+      projectId: 'saringlocal-unit-test',
+      appId: '1:100000000000:web:abcdef123456',
+      appCheckDebugToken: '11111111-2222-3333-4444-555555555555'
+    });
+
+    expect(first).not.toBeNull();
+    expect(first?.app.name).toBe('saringlocal-appcheck-unit');
+    expect(globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN).toBe(
+      '11111111-2222-3333-4444-555555555555'
+    );
+
+    const second = ensureFirebaseAppCheck(app, {
+      apiKey: 'AIzaSyTestKeyForUnitCheck00000000000',
+      projectId: 'saringlocal-unit-test',
+      appId: '1:100000000000:web:abcdef123456',
+      appCheckDebugToken: '11111111-2222-3333-4444-555555555555'
+    });
+    expect(second).toBe(first);
   });
 });
