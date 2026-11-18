@@ -9,7 +9,7 @@ describe('SaringLocal Workbench UI', () => {
 
   it('renders empty state, runs triage, switches ARIA tabs by click and keyboard, and toggles theme', async () => {
     const root = document.getElementById('app')!;
-    mountWorkbench(root);
+    mountWorkbench(root, { defaultFirebaseConfig: null });
 
     const panelTriage = root.querySelector<HTMLElement>('#panel-triage')!;
     expect(panelTriage.textContent).toContain('No triage run yet');
@@ -61,6 +61,15 @@ describe('SaringLocal Workbench UI', () => {
     );
     expect(root.querySelector<HTMLElement>('#sdk-snippet-block')!.textContent).toContain(
       'initializeAppCheck'
+    );
+  });
+
+  it('loads the live default Firebase project with App Check debug token by default', () => {
+    const root = document.getElementById('app')!;
+    mountWorkbench(root);
+
+    expect(root.querySelector<HTMLElement>('#firebase-status')!.textContent).toContain(
+      'hybridai-dfd47 | App Check debug token'
     );
   });
 });

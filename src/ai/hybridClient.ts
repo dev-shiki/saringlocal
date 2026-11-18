@@ -37,6 +37,14 @@ export interface FirebaseWebConfig {
   appCheckDebugToken?: string;
 }
 
+export const DEFAULT_FIREBASE_CONFIG: FirebaseWebConfig = {
+  apiKey: 'AIzaSyBhLx7oHy5Qjm56vzAq_-SDK7y8nnn3gE4',
+  authDomain: 'hybridai-dfd47.firebaseapp.com',
+  projectId: 'hybridai-dfd47',
+  appId: '1:369639271514:web:cce9fc6679e900a3493c63',
+  appCheckDebugToken: 'CBC1CB68-B161-4C42-B902-6148FAB8F9B1'
+};
+
 export interface HybridTriageRequest {
   rawText: string;
   mode: InferenceMode;
@@ -207,7 +215,7 @@ export const defaultHybridModelFactory: HybridModelFactory = {
           'You triage operational incidents and legal clauses. Return strict JSON with keys: severity (HIGH|MEDIUM|LOW), summary (one concise sentence), actionItems (array of 2-4 imperative steps).',
         generationConfig: {
           temperature: 0.2,
-          maxOutputTokens: 400,
+          maxOutputTokens: 2048,
           responseMimeType: 'application/json'
         }
       }
@@ -319,7 +327,7 @@ export async function runHybridTriage(
   const payloadSentToModel = shouldUseSanitizedPayload ? redaction.sanitizedText : trimmed;
   const cloudBoundaryProtected = !mayUseCloud || request.redactBeforeCloud;
 
-  const cloudModelName = request.cloudModelName?.trim() || 'gemini-2.5-flash';
+  const cloudModelName = request.cloudModelName?.trim() || 'gemini-3.1-flash-lite-preview';
   const hasFirebase = isFirebaseConfigComplete(request.firebaseConfig);
 
   // Use Firebase AI Logic SDK whenever Firebase config is present

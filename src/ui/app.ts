@@ -1,4 +1,5 @@
 import {
+  DEFAULT_FIREBASE_CONFIG,
   InferenceMode,
   isFirebaseConfigComplete,
   probeOnDeviceAvailability,
@@ -12,6 +13,7 @@ import { redactSensitiveText } from '../privacy/redactor';
 
 const THEME_STORAGE_KEY = 'saringlocal_theme';
 const FIREBASE_CONFIG_STORAGE_KEY = 'saringlocal_firebase_config';
+const FIREBASE_DISABLED_SENTINEL = 'disabled';
 
 type TabId = 'triage' | 'diff' | 'setup';
 type ViewStatus = 'empty' | 'loading' | 'error' | 'ready';
@@ -25,24 +27,35 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
-function loadSavedFirebaseConfig(): FirebaseWebConfig | null {
+function loadSavedFirebaseConfig(
+  fallbackConfig: FirebaseWebConfig | null
+): FirebaseWebConfig | null {
   try {
     const raw = window.localStorage.getItem(FIREBASE_CONFIG_STORAGE_KEY);
-    if (!raw) return null;
+    if (raw === FIREBASE_DISABLED_SENTINEL) return null;
+    if (!raw) return fallbackConfig;
     const parsed = JSON.parse(raw) as Partial<FirebaseWebConfig>;
-    return isFirebaseConfigComplete(parsed) ? parsed : null;
+    return isFirebaseConfigComplete(parsed) ? parsed : fallbackConfig;
   } catch {
-    return null;
+    return fallbackConfig;
   }
 }
 
 function saveFirebaseConfig(config: FirebaseWebConfig | null): void {
   try {
     if (!config) {
-      window.localStorage.removeItem(FIREBASE_CONFIG_STORAGE_KEY);
+      window.localStorage.setItem(FIREBASE_CONFIG_STORAGE_KEY, FIREBASE_DISABLED_SENTINEL);
       return;
     }
     window.localStorage.setItem(FIREBASE_CONFIG_STORAGE_KEY, JSON.stringify(config));
+  } catch {
+    // Ignore storage quota errors in restricted sandboxes
+  }
+}
+
+function resetSavedFirebaseConfig(): void {
+  try {
+    window.localStorage.removeItem(FIREBASE_CONFIG_STORAGE_KEY);
   } catch {
     // Ignore storage quota errors in restricted sandboxes
   }
@@ -58,11 +71,22 @@ function readInitialTheme(): 'light' | 'dark' {
   return 'light';
 }
 
+export interface MountWorkbenchOptions {
+  defaultFirebaseConfig?: FirebaseWebConfig | null;
+}
+
 export interface MountedWorkbench {
   destroy: () => void;
 }
 
-export function mountWorkbench(root: HTMLElement): MountedWorkbench {
+export function mountWorkbench(
+  root: HTMLElement,
+  options: MountWorkbenchOptions = {}
+): MountedWorkbench {
+  const defaultConfig =
+    options.defaultFirebaseConfig === undefined
+      ? DEFAULT_FIREBASE_CONFIG
+      : options.defaultFirebaseConfig;
   let theme: 'light' | 'dark' = readInitialTheme();
   let activeTab: TabId = 'triage';
   let selectedMode: InferenceMode = InferenceMode.PREFER_ON_DEVICE;
@@ -72,7 +96,7 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
   let errorMessage = '';
   let lastResult: HybridTriageResponse | null = null;
   let onDeviceStatus: OnDeviceStatus = 'unsupported';
-  let firebaseConfig: FirebaseWebConfig | null = loadSavedFirebaseConfig();
+  let firebaseConfig: FirebaseWebConfig | null = loadSavedFirebaseConfig(defaultConfig);
   let setupFeedback = '';
 
   const applyTheme = (): void => {
@@ -294,7 +318,7 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
       `const ai = getAI(app, { backend: new GoogleAIBackend() });`,
       `const model = getGenerativeModel(ai, {`,
       `  mode: InferenceMode.${selectedMode.toUpperCase()},`,
-      `  inCloudParams: { model: "gemini-2.5-flash" }`,
+      `  inCloudParams: { model: "gemini-3.1-flash-lite-preview" }`,
       `});`
     ].join('\n');
   };
@@ -456,7 +480,8 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
         </div>
         <div class="config-actions">
           <button type="submit" class="btn btn-secondary">Save Firebase Config</button>
-          <button type="button" id="clear-fb-config" class="btn">Clear Saved Config</button>
+          <button type="button" id="reset-fb-config" class="btn">Use Live Demo Project</button>
+          <button type="button" id="clear-fb-config" class="btn">Disable Cloud (Local Only)</button>
         </div>
         <p id="setup-feedback" class="state-detail" aria-live="polite">${escapeHtml(setupFeedback)}</p>
       </form>
@@ -465,6 +490,7 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
     `;
 
     const form = panelSetup.querySelector<HTMLFormElement>('#firebase-config-form')!;
+    const resetConfigBtn = panelSetup.querySelector<HTMLButtonElement>('#reset-fb-config')!;
     const clearConfigBtn = panelSetup.querySelector<HTMLButtonElement>('#clear-fb-config')!;
 
     form.addEventListener('submit', (event) => {
@@ -496,10 +522,20 @@ export function mountWorkbench(root: HTMLElement): MountedWorkbench {
       renderSetupPanel();
     });
 
+    resetConfigBtn.addEventListener('click', () => {
+      firebaseConfig = defaultConfig;
+      resetSavedFirebaseConfig();
+      setupFeedback = defaultConfig
+        ? `Restored live demo Firebase project (${defaultConfig.projectId}) with App Check.`
+        : 'No default Firebase config configured.';
+      renderDiagnostics();
+      renderSetupPanel();
+    });
+
     clearConfigBtn.addEventListener('click', () => {
       firebaseConfig = null;
       saveFirebaseConfig(null);
-      setupFeedback = 'Cleared saved Firebase config. Running in local analyzer mode.';
+      setupFeedback = 'Disabled cloud fallback. Running in local analyzer mode.';
       renderDiagnostics();
       renderSetupPanel();
     });

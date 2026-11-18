@@ -77,7 +77,7 @@ describe('runHybridTriage', () => {
     expect(mockFactory.createModel).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 'test-project' }),
       InferenceMode.PREFER_ON_DEVICE,
-      'gemini-2.5-flash'
+      'gemini-3.1-flash-lite-preview'
     );
     const promptSent = generateContent.mock.calls[0]?.[0] as string;
     expect(promptSent).not.toContain('legal@vendor.example.com');
