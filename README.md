@@ -3,6 +3,7 @@
 SaringLocal is a privacy-first incident and document triage web app built for `#BuildHybridAI 2026` using the Firebase AI Logic hybrid inference SDK (`firebase/ai`) and Firebase App Check (`firebase/app-check`).
 
 Live hosted demo: https://dev-shiki.github.io/saringlocal/
+Demo video: https://youtu.be/vilQQ55-4H4
 
 ## Value Proposition
 
